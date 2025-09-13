@@ -8,6 +8,7 @@ export function Chat({ onGeoJSON }: { onGeoJSON: (fc: FeatureCollection) => void
   const { messages, sendMessage, status } = useChat({
     api: "/api/chat",
     onFinish({ message }) {
+      // On final token: extract GeoJSON and send to map
       const text = messageText(message);
       const fc = extractGeoJSON(text);
       if (fc) {
@@ -27,10 +28,25 @@ export function Chat({ onGeoJSON }: { onGeoJSON: (fc: FeatureCollection) => void
     }
   }, [messages.length]);
 
+  // Build a render-ready list where assistant messages have GeoJSON removed
+  const renderedMessages = useMemo(() => {
+    return messages
+      .map((m) => {
+        const raw = messageText(m);
+        const text =
+          m.role === "assistant" ? stripForDisplay(raw) : raw?.trim();
+
+        return { id: m.id, role: m.role as "user" | "assistant", text: text ?? "" };
+      })
+      // Skip bubbles that end up empty (e.g., assistant message that only contained GeoJSON)
+      .filter((m) => m.text.length > 0);
+  }, [messages]);
+
+  // Derive a tidy list from the last FeatureCollection (points only)
   const places = useMemo(() => {
     if (!lastFC) return [];
     return lastFC.features
-      .filter((f) => f?.geometry?.type === "Point")
+      .filter((f) => f?.geometry?.type === "Point" && (f.properties as any)?.kind !== "target")
       .map((f) => {
         const p: any = f.properties || {};
         return {
@@ -43,7 +59,8 @@ export function Chat({ onGeoJSON }: { onGeoJSON: (fc: FeatureCollection) => void
           opening_hours: p.opening_hours,
           website: p.website,
         };
-      });
+      })
+      .slice(0, 5);
   }, [lastFC]);
 
   const areaName = useMemo(() => {
@@ -55,16 +72,22 @@ export function Chat({ onGeoJSON }: { onGeoJSON: (fc: FeatureCollection) => void
   return (
     <div className="chat">
       <div className="messages">
-        {messages.map((m) => {
-          const raw = messageText(m);
-          const display = m.role === "assistant" ? stripGeoJSON(raw) : raw;
+        {renderedMessages.map((m) => {
           const roleClass = m.role === "user" ? "user" : "assistant";
-
           return (
             <div key={m.id} className={`msgRow ${roleClass}`}>
               <div style={{ maxWidth: "100%" }}>
                 <div className="meta">{m.role === "user" ? "You" : "Bot"}</div>
-                <div className={`bubble ${roleClass}`}>{display || <em>(no text)</em>}</div>
+                <div
+                  className={`bubble ${roleClass}`}
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "anywhere",
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {m.text}
+                </div>
               </div>
             </div>
           );
@@ -72,12 +95,14 @@ export function Chat({ onGeoJSON }: { onGeoJSON: (fc: FeatureCollection) => void
 
         {/* Nicely formatted places list */}
         {lastFC && (
-          <div className="placesPanel">
+          <div className="placesPanel" style={{ overflowWrap: "anywhere", wordBreak: "break-word" }}>
             <div style={{ fontWeight: 700, marginBottom: 6 }}>
               {areaName ? `${areaName}: ` : ""}Places found ({places.length})
             </div>
             {places.length === 0 ? (
-              <div style={{ color: "#666" }}>No places found. Try a different area or tag (e.g., “cafes near NTU”).</div>
+              <div style={{ color: "#666" }}>
+                No places found. Try a different area or tag (e.g., “cafes near NTU”).
+              </div>
             ) : (
               <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
                 {places.map((p) => (
@@ -105,7 +130,7 @@ export function Chat({ onGeoJSON }: { onGeoJSON: (fc: FeatureCollection) => void
           </div>
         )}
 
-        <div style={{ fontSize: 12, color: "#666", marginTop: 12, marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: "#666", marginTop: 12 }}>
           Tip: “Recommend lunch spots near NTU with vegetarian options and show them on the map.”
         </div>
       </div>
@@ -134,19 +159,39 @@ export function Chat({ onGeoJSON }: { onGeoJSON: (fc: FeatureCollection) => void
   );
 }
 
-/* helpers */
+/* ---------- helpers ---------- */
 
 function messageText(m: any): string {
+  // AI SDK v5 messages come with parts[]
   if (!m?.parts) return "";
   return m.parts.map((p: any) => (p.type === "text" ? p.text : "")).join("");
 }
 
-function stripGeoJSON(text: string): string {
-  return text.replace(/```geojson[\s\S]*?```/g, "").trim();
+/**
+ * Remove any fenced ```geojson / ```json blocks from assistant text,
+ * including *partial* streaming fences without a closing ``` yet.
+ * Also strip generic ```…``` blocks as a fallback.
+ */
+function stripForDisplay(text: string): string {
+  if (!text) return "";
+
+  let out = text;
+
+  // Remove complete geojson/json fenced blocks (case-insensitive)
+  out = out.replace(/```(?:geo)?json[\s\S]*?```/gi, "");
+
+  // Remove any open geojson/json fence to the end (streaming partial)
+  out = out.replace(/```(?:geo)?json[\s\S]*$/gi, "");
+
+  // Fallback: remove any other fenced block (helps if model says ```map or similar)
+  out = out.replace(/```[\s\S]*?```/g, "");
+
+  return out.trim();
 }
 
 function extractGeoJSON(text: string): FeatureCollection | null {
-  const matches = Array.from(text.matchAll(/```geojson\s*([\s\S]*?)```/g));
+  // Take the last fenced geojson/json block, if any
+  const matches = Array.from(text.matchAll(/```(?:geo)?json\s*([\s\S]*?)```/gi));
   if (!matches.length) return null;
   try {
     const parsed = JSON.parse(matches[matches.length - 1][1]);
