@@ -185,3 +185,12 @@ html, body {
 .placeItem:last-child { border-bottom: 0; }
 .placeName { font-weight: 600; }
 .placeSub { font-size: 12px; color: #555; }
+
+.maplibregl-popup.hover-popup .maplibregl-popup-content {
+  padding: 4px 6px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+.maplibregl-popup.hover-popup .maplibregl-popup-tip {
+  display: none;
+}
