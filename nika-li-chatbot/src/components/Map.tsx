@@ -76,7 +76,7 @@ export default function Map({ featureCollection }: { featureCollection: FeatureC
     }
   }, [featureCollection]);
 
-  return <div ref={containerRef} style={{ width: "100%", height: "100vh" }} />;
+  return <div ref={containerRef} style={{ width: "100%", height: "100%" }} />;
 }
 
 // Idempotently add source/layers if missing
