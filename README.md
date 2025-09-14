@@ -234,3 +234,16 @@ The bot parses a natural-language query (e.g., “team-friendly cafés near One-
 “Chill bars in Tanjong Pagar — map them.”
 
 “Good coffee around Changi Business Park.”
+
+## Ways to make the chatbot more scalable:
+- Cache everything you can: geocodes, Overpass queries, and model outputs.
+    - Key things to cache with TTLs:
+    - searchPlaces(query) → 1–6h
+- Rolling conversation summary so you don’t resend a huge chat history.
+- H3 / grid-based search
+    - Instead of raw radius each time, pre-bucket POIs into H3 cells, then query concentric rings around the center until you collect N candidates. This avoids scanning the whole world and is cache-friendly.
+    - How it works (algorithm)
+        - Convert the center (your red pin) to a cell at a chosen resolution (e.g., 8).
+        - Look up POIs cached for that cell ID.
+        - If you still need more, expand to the next ring of neighbor cells, merge results, stop once you reach N candidates (e.g., 5).
+        - Sort by distance to the actual center and keep the top N.
